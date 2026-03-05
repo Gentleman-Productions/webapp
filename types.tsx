@@ -1,31 +1,177 @@
-export interface Event {
-  uuid: string; // Unique identifier for each event
-  title: string; // Title of the event
-  dates: EventDateEntry[]; // List of date entries
-  description: string; // Event description
-  mainImage: string; // Main image for the event
-  images?: string[]; // Additional images for the event
-  eventLocation?: EventLocation; // Location details of the event
+// ============================================================================
+// Database Object Types
+// ============================================================================
+
+/**
+ * Base interface for all database objects
+ */
+export interface DbObject {
+  uuid: string;
+  created_at: string;
+  updated_at?: string;
+  created_by?: string;
 }
 
+/**
+ * Enum for different types of posts
+ * Add new post types here as the application grows
+ */
+export enum DbObjectType {
+  EVENT = "EVENT",
+  BASIC_POST = "BASIC_POST",
+}
+
+// ============================================================================
+// Post Types
+// ============================================================================
+
+/**
+ * Base interface for all post types
+ * All specific post types (Event, Article, etc.) should extend this
+ */
+export interface Post extends DbObject {
+  title: string;
+  post_type: DbObjectType;
+  description: string;
+}
+
+/**
+ * Event post type - extends Post with event-specific fields
+ */
+export interface Event extends Post {
+  post_type: DbObjectType.EVENT;
+  display_image: string;
+  images?: string[];
+  dates: EventDateEntry[];
+  eventlocation?: EventLocation;
+}
+
+/**
+ * Basic post type - a simple post with an image, title, optional description and optional link
+ */
+export interface BasicPost extends Post {
+  post_type: DbObjectType.BASIC_POST;
+  display_image: string;
+  link?: string;
+  link_text?: string;
+  date?: string;
+  location?: string;
+}
+
+/**
+ * Location details for an event
+ */
 export interface EventLocation {
-  country: string; // Country of the event
-  city: string; // City of the event
-  street: string; // Street address
-  location?: string; // Name of the venue
+  country: string;
+  city: string;
+  street: string;
+  location?: string; // Venue name
 }
 
-
+/**
+ * Single date entry for an event (events can have multiple dates)
+ */
 export interface EventDateEntry {
-  uuid: string; // Unique identifier for each date entry
-  start: string; // ISO date string
-  end: string; // ISO date string
+  uuid: string;
+  start_time: string; // ISO date string
+  end_time: string; // ISO date string
   timeLine: TimeLineEntry[];
-  price?: number; //undefined if free
-  external_link?: string; 
+  price?: number; // undefined if free
+  external_link?: string;
 }
 
-export interface TimeLineEntry{
+/**
+ * Timeline entry within an event date
+ */
+export interface TimeLineEntry {
   time: string;
   description: string;
+}
+
+// ============================================================================
+// Highlight Types
+// ============================================================================
+
+/**
+ * Highlighted event reference - links to a post to feature it
+ */
+export interface EventHighlight {
+  uuid: string;
+  event_uuid: string;
+  valid_date: string;
+}
+
+/**
+ * Highlighted event with full event data (returned from API)
+ */
+export interface HighlightedEvent extends Event {
+  valid_date: string;
+}
+
+/**
+ * Highlighted post - can be an event or a basic post
+ */
+export type HighlightedPost = (Event | BasicPost) & { valid_date: string };
+
+// ============================================================================
+// About Page Types
+// ============================================================================
+
+/**
+ * Team member profile
+ */
+export interface TeamMember extends DbObject {
+  member_name: string;
+  member_role: string;
+  image?: string;
+  email?: string;
+  linkedin?: string;
+  instagram?: string;
+  facebook?: string;
+  twitter?: string;
+  website?: string;
+}
+
+/**
+ * Partner/sponsor organization
+ */
+export interface Partner extends DbObject {
+  partner_name: string;
+  logo: string;
+  description: string;
+}
+
+// ============================================================================
+// Utility Types
+// ============================================================================
+
+/**
+ * Generic API response with pagination
+ */
+export interface PaginatedResponse<T> {
+  data: T[];
+  total: number;
+  page: number;
+  limit: number;
+}
+
+/**
+ * Type guard to check if a post is an Event
+ */
+export function isEvent(post: Post): post is Event {
+  return post.post_type === DbObjectType.EVENT;
+}
+
+/**
+ * Type guard to check if a post is a BasicPost
+ */
+export function isBasicPost(post: Post): post is BasicPost {
+  return post.post_type === DbObjectType.BASIC_POST;
+}
+
+/**
+ * Create a new UUID - utility for creating new objects
+ */
+export function createUUID(): string {
+  return crypto.randomUUID();
 }

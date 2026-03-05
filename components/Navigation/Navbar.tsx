@@ -5,10 +5,24 @@ import styles from "./styles.module.css";
 import Socials from "./Socials";
 import { Burger, Group, Image } from "@mantine/core";
 import { usePathname, useRouter } from "next/navigation";
+import Navigation from "./Navigation";
+import { useEffect, useState } from "react";
 
 export default function NavBar() {
-  const pathname = usePathname();
   const router = useRouter();
+  const [userRole, setUserRole] = useState<string | null>(null);
+
+  useEffect(() => {
+    // Fetch user role from API
+    fetch("/api/auth/me")
+      .then((res) => res.json())
+      .then((data) => {
+        setUserRole(data.user?.role || null);
+      })
+      .catch(() => {
+        setUserRole(null);
+      });
+  }, []);
 
   return (
     <div className={styles.navbar}>
@@ -18,24 +32,12 @@ export default function NavBar() {
           router.push("/");
         }}
       >
-        <Image src={"/GP-name.svg"} alt="/home/" width={200} height={45} />
+        <Image src={"/GP-name.svg"} alt="/home/" width={200} height={50} />
       </div>
-      {/* <Group className={styles.navigation} visibleFrom="sm">
-        <a href="/" className={pathname === "/" ? "active" : ""}>
-          Home
-        </a>
+      <Group className={styles.navigation} visibleFrom="sm">
+        <Navigation userRole={userRole} />
+      </Group>
 
-        <a href="/about/" className={pathname === "/about" ? "active" : ""}>
-          About
-        </a>
-
-        <a
-          href="/pictures/"
-          className={pathname === "/pictures" ? "active" : ""}
-        >
-          Pictures
-        </a>
-      </Group> */}
       <Socials white={true} />
     </div>
   );
