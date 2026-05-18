@@ -8,14 +8,16 @@ import { ScrollTrigger } from "gsap/ScrollTrigger";
 import { ScrollToPlugin } from "gsap/ScrollToPlugin";
 import EventCard from "@/components/EventCard/EventCard";
 import BasicPostCard from "@/components/EventCard/BasicPostCard";
-import { useEffect, useRef, useState } from "react";
-import { DbObjectType, Event, BasicPost, EventHighlight, Post } from "@/types";
-import { Group, Image, Stack, Text } from "@mantine/core";
-import { createRoot } from "react-dom/client";
-import { Canvas } from "@react-three/fiber";
+import SectionLabel from "@/components/SectionLabel/SectionLabel";
+import { LoadingScreen } from "@/components/StateScreens/StateScreens";
+import Countdown from "@/components/Countdown/Countdown";
+import { useEffect, useState } from "react";
+import { DbObjectType, Event, BasicPost, Post } from "@/types";
+import { Image } from "@mantine/core";
 import CanvasBackground from "@/components/Background/CanvasBackground";
-import { IconCalendarWeek } from "@tabler/icons-react";
+import GoldShimmerCTA from "@/components/GoldShimmerCTA/GoldShimmerCTA";
 import { usePosts } from "./contexts/PostsContext";
+import { splitTitleAccent } from "@/lib/text";
 
 gsap.registerPlugin(useGSAP, ScrollTrigger, ScrollToPlugin);
 
@@ -29,17 +31,43 @@ const imageURLs = [
   "https://1drv.ms/i/c/09de1e7f62bf5ef8/IQQ-I_YDmtHwRKkmn5kSXiWhAbgKBAk876JZ0tOVwc_ooXs?width=2550",
 ];
 
+function getHighlightDate(highlight: any): Date | null {
+  if (!highlight) return null;
+  if (highlight.post_type === DbObjectType.EVENT && highlight.dates?.length) {
+    return new Date(highlight.dates[0].start_time);
+  }
+  if (highlight.post_type === DbObjectType.BASIC_POST && highlight.date) {
+    return new Date(highlight.date);
+  }
+  return null;
+}
+
+// For an event, use its last scheduled date so multi-day events stay
+// "upcoming" until every occurrence has passed.
+function getPostSortDate(post: Post): Date | null {
+  if (post.post_type === DbObjectType.EVENT) {
+    const event = post as Event;
+    if (!event.dates?.length) return null;
+    const max = Math.max(
+      ...event.dates.map((d) => new Date(d.start_time).getTime()),
+    );
+    return new Date(max);
+  }
+  if (post.post_type === DbObjectType.BASIC_POST) {
+    const bp = post as BasicPost;
+    return bp.date ? new Date(bp.date) : null;
+  }
+  return null;
+}
+
 export default function Home() {
   const router = useRouter();
-  const { posts, loading, error, highlight } = usePosts();
+  const { posts, loading, highlight } = usePosts();
 
   const [currentIndex, setCurrentIndex] = useState(0);
-  const [isHydrated, setIsHydrated] = useState(false);
 
   useEffect(() => {
-    // Initialize with random index after hydration
     setCurrentIndex(Math.floor(Math.random() * imageURLs.length));
-    setIsHydrated(true);
 
     const intervalId = setInterval(() => {
       setCurrentIndex((prevIndex) => (prevIndex + 1) % imageURLs.length);
@@ -67,7 +95,7 @@ export default function Home() {
           gsap.to(window, {
             scrollTo: { y: "-=60", autoKill: false },
             duration: 0.5,
-            ease: "bounce.out", // Bounce effect for scrolling back up
+            ease: "bounce.out",
             onComplete: () => {
               setPulseVisible(false);
             },
@@ -86,7 +114,6 @@ export default function Home() {
   const [viewportHeight, setViewportHeight] = useState(0);
 
   useEffect(() => {
-    // Set initial viewport height
     setViewportHeight(window.innerHeight);
 
     const handleResize = () => {
@@ -106,23 +133,64 @@ export default function Home() {
     };
   }, []);
 
-  // Calculate canvas transform - scrolls with page until it covers viewport, then stays fixed
   const canvasTransform =
     viewportHeight > 0
       ? scrollY >= viewportHeight
-        ? "translateY(0)" // Fully covering - stay fixed at top
-        : `translateY(${viewportHeight - scrollY}px)` // Scroll with content
+        ? "translateY(0)"
+        : `translateY(${viewportHeight - scrollY}px)`
       : "translateY(100%)";
 
-  useEffect(() => {
-    console.log(highlight);
-  }, [highlight]);
+  if (loading) return <LoadingScreen />;
 
-  if (loading) return <p>Loading events...</p>;
+  const showDate = getHighlightDate(highlight);
+  const hasActiveHighlight =
+    !!highlight && new Date(highlight.valid_date) > new Date();
+  const isEventHighlight =
+    hasActiveHighlight && highlight.post_type === DbObjectType.EVENT;
+  const { main: titleMain, accent: titleAccent } = hasActiveHighlight
+    ? splitTitleAccent(highlight.title)
+    : { main: "", accent: "" };
+  const venue = isEventHighlight
+    ? (highlight as Event).eventlocation?.location ||
+      (highlight as Event).eventlocation?.city
+    : hasActiveHighlight
+      ? (highlight as BasicPost).location
+      : undefined;
+
+  let ctaLabel: string | null = null;
+  let ctaHref: string | undefined;
+  let ctaTarget: string | undefined;
+  let ctaRel: string | undefined;
+  let ctaDisabled = false;
+
+  if (hasActiveHighlight) {
+    if (isEventHighlight) {
+      const isFuture = showDate && showDate > new Date();
+      if (!isFuture) {
+        ctaLabel = "View Event";
+        ctaHref = `/event/${highlight.uuid}`;
+      } else if ((highlight as Event).tickets_open) {
+        ctaLabel = "More Info";
+        ctaHref = `/event/${highlight.uuid}/ticket`;
+      } else {
+        ctaLabel = "Tickets available soon";
+        ctaDisabled = true;
+      }
+    } else {
+      const bp = highlight as BasicPost;
+      if (bp.link) {
+        ctaLabel = bp.link_text || "More Info";
+        ctaHref = bp.link;
+        ctaTarget = "_blank";
+        ctaRel = "noopener noreferrer";
+      }
+    }
+  }
+  const ctaIsExternal = !!ctaTarget;
 
   return (
     <div className={`${styles.main}`}>
-      {/*Background Image*/}
+      {/* Background image */}
       <div className={styles.imageContainer}>
         <Image
           src={imageURLs[currentIndex]}
@@ -138,7 +206,7 @@ export default function Home() {
           }}
         />
       </div>
-      {/* Canvas Background - scrolls with page then becomes fixed */}
+      {/* Three.js Canvas background — scrolls with page then becomes fixed */}
       <div
         style={{
           position: "fixed",
@@ -152,13 +220,8 @@ export default function Home() {
       >
         <CanvasBackground />
       </div>
-      {/* Main Content */}
-      <div
-        style={{
-          position: "relative",
-          zIndex: 3, // Ensure content is always above both the background and CanvasBackground
-        }}
-      >
+
+      <div style={{ position: "relative", zIndex: 3 }}>
         {pulseVisible && (
           <div className={styles.pulse_indicator}>
             <div className={styles.ring}></div>
@@ -166,139 +229,167 @@ export default function Home() {
             <div className={styles.ring}></div>
           </div>
         )}
-        {/**Highlight */}
-        <div className={styles.hightlight}>
-          <div className={styles.glass}>
-            {highlight &&
-            highlight.post_type === DbObjectType.EVENT &&
-            highlight.valid_date &&
-            new Date(highlight.valid_date) > new Date() ? (
+
+        {/* Highlight hero */}
+        <section className={styles.hero}>
+          <div className={styles.heroSide}>
+            <span className={styles.heroSideLine}></span>
+            GENTLEMAN PRODUCTIONS · ANNO MMXXVI · MERELBEKE
+            <span className={styles.heroSideLine}></span>
+          </div>
+
+          <div className={styles.heroContent}>
+            {hasActiveHighlight ? (
               <>
-                <div className={"title"}>
-                  {highlight.title}
-                  <div className={styles.line}></div>
-                </div>
-                <div className="bold">SAVE THE DATE</div>
-                <div className={styles.date}>
-                  {highlight.post_type === DbObjectType.EVENT &&
-                    (highlight as Event).dates.map((date, index) => (
-                      <span key={index}>
-                        {new Date(date.start_time).toLocaleDateString("nl-BE", {
-                          day: "numeric",
-                          month: "long",
-                          year: "numeric",
-                        })}
-                        {index === 0 && index != highlight.dates.length - 1
-                          ? " - "
-                          : ""}
-                      </span>
-                    ))}
-                </div>
-                <button
-                  className="btn-red"
-                  onClick={() => {
-                    router.push("/event/" + highlight.uuid + "/ticket");
-                  }}
-                >
-                  More Info
-                </button>
-              </>
-            ) : highlight &&
-              highlight.post_type === DbObjectType.BASIC_POST &&
-              highlight.date &&
-              new Date(highlight.valid_date) > new Date() ? (
-              <>
-                <div className={"title"}>
-                  {highlight.title}
-                  <div className={styles.line}></div>
-                </div>
-                <div className="bold">SAVE THE DATE</div>
-                <div className={styles.date}>
-                  {(highlight as BasicPost).date &&
-                    new Date(highlight.date).toLocaleDateString("nl-BE", {
-                      day: "numeric",
-                      month: "long",
-                      year: "numeric",
-                    })}
-                </div>
+                <h1 className={styles.heroTitle}>
+                  {titleMain}
+                  {titleAccent && (
+                    <>
+                      {" "}
+                      <span className={styles.accent}>{titleAccent}</span>
+                    </>
+                  )}
+                </h1>
+
                 {highlight.description && (
-                  <div className="bold">{highlight.description}</div>
+                  <p className={styles.tagline}>
+                    <span className={styles.quote}>&ldquo;</span>
+                    {highlight.description}
+                    <span className={styles.quote}>&rdquo;</span>
+                  </p>
                 )}
-                {(highlight as BasicPost).link && (
-                  <a
-                    href={(highlight as BasicPost).link}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                  >
-                    <button className="btn-red">
-                      {(highlight as BasicPost).link_text || "Learn more"}
-                    </button>
-                  </a>
+
+                {showDate && (
+                  <div className={styles.dateRow}>
+                    <span className={styles.dateChevron}>&#9656;</span>
+                    <span className={styles.dateMain}>
+                      {isEventHighlight
+                        ? (highlight as Event).dates.map((d, i) => (
+                            <span key={i}>
+                              {new Date(d.start_time).toLocaleDateString(
+                                "nl-BE",
+                                {
+                                  day: "numeric",
+                                  month: "long",
+                                  year: "numeric",
+                                },
+                              )}
+                              {i < (highlight as Event).dates.length - 1
+                                ? " — "
+                                : ""}
+                            </span>
+                          ))
+                        : showDate.toLocaleDateString("nl-BE", {
+                            day: "numeric",
+                            month: "long",
+                            year: "numeric",
+                          })}
+                    </span>
+                    {venue && (
+                      <span className={styles.dateVenue}>{venue}</span>
+                    )}
+                  </div>
+                )}
+
+                {showDate && showDate > new Date() && (
+                  <div className={styles.countdownWrap}>
+                    <Countdown target={showDate} />
+                  </div>
+                )}
+
+                {ctaLabel && (
+                  <div className={styles.ctaRow}>
+                    <GoldShimmerCTA
+                      href={ctaIsExternal ? ctaHref : undefined}
+                      target={ctaTarget}
+                      rel={ctaRel}
+                      onClick={
+                        !ctaIsExternal && !ctaDisabled && ctaHref
+                          ? () => router.push(ctaHref!)
+                          : undefined
+                      }
+                      disabled={ctaDisabled}
+                    >
+                      {ctaLabel}
+                    </GoldShimmerCTA>
+                  </div>
                 )}
               </>
             ) : (
-              <div className={"title"}>
-                Gentleman Productions
-                <div className={styles.line}></div>
-              </div>
+              <h1 className={styles.heroFallback}>
+                Gentleman <span className={styles.accent}>Productions</span>
+              </h1>
             )}
           </div>
-        </div>
-        {/* anouncements section */}
-        <Stack align="center" justify="center">
-          {/*events */}
+        </section>
 
-          <Stack align="center" justify="center">
-            {posts &&
-              posts
-                .sort(
-                  (a: Post, b: Post) =>
-                    new Date(b.created_at).getTime() -
-                    new Date(a.created_at).getTime(),
-                )
-                .map((post: Post, index: number) => (
-                  <div key={post.uuid} style={{ width: "100%" }}>
-                    <Group
-                      justify={"center"}
-                      mt={200}
-                      style={{ position: "relative" }}
-                    >
-                      <Group
-                        style={{
-                          position: "relative",
-                          top: "0px",
-                        }}
-                      >
-                        <IconCalendarWeek size={25} />
+        {/* Posts section */}
+        {(() => {
+          const now = new Date();
+          const upcomingPosts: Post[] = [];
+          const pastPosts: Post[] = [];
+          (posts ?? []).forEach((post: Post) => {
+            const d = getPostSortDate(post);
+            if (d && d >= now) upcomingPosts.push(post);
+            else pastPosts.push(post);
+          });
 
-                        <div>
-                          <div className="gray-600">Posted at</div>
-                          <div className="date fs14">
-                            {new Date(post.created_at).toLocaleDateString(
-                              "nl-BE",
-                              {
-                                day: "numeric",
-                                month: "long",
-                                year: "numeric",
-                              },
-                            )}
-                          </div>
-                        </div>
-                      </Group>
-                    </Group>
-                    {post.post_type === DbObjectType.EVENT && (
-                      <EventCard event={post as Event} index={index} />
-                    )}
-                    {post.post_type === DbObjectType.BASIC_POST && (
-                      <BasicPostCard
-                        post={post as BasicPost}
-                        index={index}
-                      />
-                    )}
+          // Upcoming: soonest first. Past: most recent first.
+          upcomingPosts.sort((a, b) => {
+            const da = getPostSortDate(a)?.getTime() ?? 0;
+            const db = getPostSortDate(b)?.getTime() ?? 0;
+            return da - db;
+          });
+          pastPosts.sort((a, b) => {
+            const da =
+              getPostSortDate(a)?.getTime() ?? new Date(a.created_at).getTime();
+            const db =
+              getPostSortDate(b)?.getTime() ?? new Date(b.created_at).getTime();
+            return db - da;
+          });
+
+          const renderPost = (post: Post, index: number) => (
+            <article key={post.uuid}>
+              <div className={styles.postMeta}>
+                <span className={styles.postMetaLine}></span>
+                Posted ·{" "}
+                {new Date(post.created_at).toLocaleDateString("nl-BE", {
+                  day: "numeric",
+                  month: "long",
+                  year: "numeric",
+                })}
+                <span className={styles.postMetaLine}></span>
+              </div>
+              {post.post_type === DbObjectType.EVENT && (
+                <EventCard event={post as Event} index={index} />
+              )}
+              {post.post_type === DbObjectType.BASIC_POST && (
+                <BasicPostCard post={post as BasicPost} index={index} />
+              )}
+            </article>
+          );
+
+          return (
+            <>
+              {upcomingPosts.length > 0 && (
+                <section className={styles.postsSection}>
+                  <SectionLabel>Upcoming events</SectionLabel>
+                  <div className={styles.postsStack}>
+                    {upcomingPosts.map(renderPost)}
                   </div>
-                ))}
-          </Stack>
-        </Stack>
+                </section>
+              )}
+              {pastPosts.length > 0 && (
+                <section className={styles.postsSection}>
+                  <SectionLabel>Past events</SectionLabel>
+                  <div className={styles.postsStack}>
+                    {pastPosts.map(renderPost)}
+                  </div>
+                </section>
+              )}
+            </>
+          );
+        })()}
       </div>
     </div>
   );
